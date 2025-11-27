@@ -4,13 +4,14 @@ const server = require('http').createServer(app);
 const io = require('socket.io')(server);
 const { ExpressPeerServer } = require('peer');
 
-// 1. Setup Static Files
+// 1. Host Static Files
 app.use(express.static('public'));
 
 // 2. Setup PeerJS Server (Video Signaling)
+// FIXED: set path to '/' so it mounts correctly at /peerjs
 const peerServer = ExpressPeerServer(server, {
   debug: true,
-  path: '/myapp'
+  path: '/' 
 });
 app.use('/peerjs', peerServer);
 
@@ -28,8 +29,9 @@ io.on('connection', (socket) => {
       id: socket.id
     };
     
-    // Send state to everyone
+    // Send full player list to the new user
     socket.emit('currentPlayers', players);
+    // Tell everyone else about the new user
     socket.broadcast.emit('newPlayer', players[socket.id]);
   });
 
@@ -49,7 +51,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// 4. Start Server (Render injects the PORT)
+// 4. Start Server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
