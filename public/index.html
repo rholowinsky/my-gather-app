@@ -64,11 +64,15 @@
     const initials = prompt("Enter Initials:") || "User";
 
     // 2. Setup Video (PeerJS)
+    // FIXED: Detect if we are on Render (HTTPS) or Localhost (HTTP)
+    const isSecure = location.protocol === 'https:';
+    const peerPort = isSecure ? 443 : 3000;
+
     const peer = new Peer(undefined, {
         host: location.hostname, 
-        port: 443, 
+        port: peerPort, 
         path: '/peerjs',
-        secure: true // Render forces HTTPS
+        secure: isSecure
     });
 
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
@@ -80,10 +84,7 @@
             call.answer(stream);
             const video = document.createElement('video');
             call.on('stream', userStream => {
-                video.srcObject = userStream;
-                video.autoplay = true;
-                video.id = `vid-${call.peer}`;
-                document.getElementById('video-bar').appendChild(video);
+                addVideo(video, userStream, call.peer);
             });
             call.on('close', () => video.remove());
             activeCalls[call.peer] = call;
@@ -91,8 +92,15 @@
     });
 
     // 3. Connect to Game
+    // Note: The game only starts once the Peer connection is open!
     peer.on('open', id => {
+        console.log("My Peer ID is: " + id);
         socket.emit('join', { initials: initials, peerId: id });
+    });
+
+    peer.on('error', err => {
+        console.error("PeerJS Error:", err);
+        alert("Video server connection failed. Check console.");
     });
 
     // 4. Socket Events (Game Logic)
@@ -119,8 +127,7 @@
             // Close video call if exists
             const peerId = players[id].peerId;
             if(activeCalls[peerId]) activeCalls[peerId].close();
-            const vid = document.getElementById(`vid-${peerId}`);
-            if(vid) vid.remove();
+            removeVideo(peerId);
         }
         delete players[id];
     });
@@ -150,6 +157,18 @@
         }
     }
 
+    function addVideo(video, stream, peerId) {
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.id = `vid-${peerId}`;
+        document.getElementById('video-bar').appendChild(video);
+    }
+
+    function removeVideo(peerId) {
+        const vid = document.getElementById(`vid-${peerId}`);
+        if(vid) vid.remove();
+    }
+
     // 6. Proximity Logic
     function checkProximity(target) {
         if (!myStream) return;
@@ -163,10 +182,7 @@
                 const call = peer.call(pid, myStream);
                 const video = document.createElement('video');
                 call.on('stream', remoteStream => {
-                    video.srcObject = remoteStream;
-                    video.autoplay = true;
-                    video.id = `vid-${pid}`;
-                    document.getElementById('video-bar').appendChild(video);
+                    addVideo(video, remoteStream, pid);
                 });
                 activeCalls[pid] = call;
             }
@@ -175,8 +191,7 @@
             if (activeCalls[pid]) {
                 activeCalls[pid].close();
                 delete activeCalls[pid];
-                const vid = document.getElementById(`vid-${pid}`);
-                if(vid) vid.remove();
+                removeVideo(pid);
             }
         }
     }
@@ -185,18 +200,21 @@
     window.addEventListener('keydown', e => {
         if (!myId || !players[myId]) return;
         const speed = 10;
-        if (e.key === 'ArrowUp' || e.key === 'w') players[myId].y -= speed;
-        if (e.key === 'ArrowDown' || e.key === 's') players[myId].y += speed;
-        if (e.key === 'ArrowLeft' || e.key === 'a') players[myId].x -= speed;
-        if (e.key === 'ArrowRight' || e.key === 'd') players[myId].x += speed;
+        let moved = false;
+        if (e.key === 'ArrowUp' || e.key === 'w') { players[myId].y -= speed; moved = true; }
+        if (e.key === 'ArrowDown' || e.key === 's') { players[myId].y += speed; moved = true; }
+        if (e.key === 'ArrowLeft' || e.key === 'a') { players[myId].x -= speed; moved = true; }
+        if (e.key === 'ArrowRight' || e.key === 'd') { players[myId].x += speed; moved = true; }
         
-        updateAvatar(players[myId]);
-        socket.emit('move', { x: players[myId].x, y: players[myId].y });
-        
-        // Check everyone else for proximity
-        Object.values(players).forEach(p => {
-            if(p.id !== myId) checkProximity(p);
-        });
+        if(moved) {
+            updateAvatar(players[myId]);
+            socket.emit('move', { x: players[myId].x, y: players[myId].y });
+            
+            // Check everyone else for proximity
+            Object.values(players).forEach(p => {
+                if(p.id !== myId) checkProximity(p);
+            });
+        }
     });
 </script>
 </body>
